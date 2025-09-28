@@ -12,7 +12,6 @@ import {
 } from "lucide-react-native";
 import React, { useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Keyboard,
   ScrollView,
@@ -20,7 +19,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
 import MapView, { MapPressEvent, Marker, Polyline, Region } from "react-native-maps";
 
@@ -89,8 +88,7 @@ export default function RoutesScreen() {
   const useMyLocation = async () => {
     try {
       const services = await Location.hasServicesEnabledAsync();
-      if (!services)
-        return Alert.alert("Location is off", "Enable Location Services and try again.");
+      if (!services) return Alert.alert("Location is off", "Enable Location Services and try again.");
       let perm = await Location.getForegroundPermissionsAsync();
       if (perm.status !== "granted") perm = await Location.requestForegroundPermissionsAsync();
       if (perm.status !== "granted")
@@ -188,16 +186,10 @@ export default function RoutesScreen() {
 
   const calculateSafeRoute = async () => {
     if (!API_BASE) {
-      return Alert.alert(
-        "Missing API URL",
-        "Set EXPO_PUBLIC_API_BASE_URL in app.json and restart Expo."
-      );
+      return Alert.alert("Missing API URL", "Set EXPO_PUBLIC_API_BASE_URL in app.json and restart Expo.");
     }
     if (!sourceCoord || !destCoord) {
-      return Alert.alert(
-        "Pick both points",
-        "Choose a start and an end (search or long-press on the map)."
-      );
+      return Alert.alert("Pick both points", "Choose a start and an end (search or long-press on the map).");
     }
     try {
       setIsLoading(true);
@@ -214,21 +206,15 @@ export default function RoutesScreen() {
         distance: `${(json.distance_m / 1000).toFixed(1)} km`,
         duration: `${Math.round(json.duration_min)} mins`,
         safetyScore: `${Math.max(0, Math.min(100, Math.round(100 - json.safety_score)))}%`,
-        warnings: json.warnings ?? [],
+        warnings: Array.isArray(json.warnings) ? json.warnings : [],
       });
       if (mapRef.current && (json.polyline?.length ?? 0) > 1) {
-        const coords = (json.polyline as Coord[]).map((p) => ({
-          latitude: p.lat,
-          longitude: p.lon,
-        }));
+        const coords = (json.polyline as Coord[]).map((p) => ({ latitude: p.lat, longitude: p.lon }));
         // @ts-ignore
-        mapRef.current.fitToCoordinates(coords, {
-          edgePadding: { top: 60, bottom: 60, left: 40, right: 40 },
-          animated: true,
-        });
+        mapRef.current.fitToCoordinates(coords, { edgePadding: { top: 60, bottom: 60, left: 40, right: 40 }, animated: true });
       }
     } catch (e: any) {
-      Alert.alert("Routing failed", e.message || "Please try again.");
+      Alert.alert("Routing failed", String(e.message || e));
     } finally {
       setIsLoading(false);
     }
@@ -250,24 +236,15 @@ export default function RoutesScreen() {
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         {/* Active field selector */}
         <View style={styles.row}>
-          <TouchableOpacity
-            onPress={() => setActiveField("source")}
-            style={[styles.chip, activeField === "source" && styles.chipActive]}
-          >
-            <Text style={[styles.chipText, activeField === "source" && styles.chipTextActive]}>
-              Set Start
-            </Text>
+          <TouchableOpacity onPress={() => setActiveField("source")} style={[styles.chip, activeField === "source" && styles.chipActive]}>
+            <Text style={[styles.chipText, activeField === "source" && styles.chipTextActive]}>Set Start</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => setActiveField("dest")}
-            style={[styles.chip, activeField === "dest" && styles.chipActive]}
-          >
-            <Text style={[styles.chipText, activeField === "dest" && styles.chipTextActive]}>
-              Set Destination
-            </Text>
+          <TouchableOpacity onPress={() => setActiveField("dest")} style={[styles.chip, activeField === "dest" && styles.chipActive]}>
+            <Text style={[styles.chipText, activeField === "dest" && styles.chipTextActive]}>Set Destination</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={swapEndpoints} style={styles.swapBtn} accessibilityLabel="Swap">
-            <ArrowLeftRight size={16} color="#2563EB" /> {/* ✅ fixed icon */}
+            {/* icon is fine; ensure no stray strings here */}
+            <ArrowLeftRight size={16} color="#2563EB" />
           </TouchableOpacity>
         </View>
 
@@ -276,11 +253,7 @@ export default function RoutesScreen() {
           <SearchIcon size={18} color="#6B7280" />
           <TextInput
             style={styles.searchInput}
-            placeholder={
-              activeField === "source"
-                ? 'Search start (e.g. "Dhanmondi Road 6")'
-                : 'Search destination (e.g. "Gulshan 2")'
-            }
+            placeholder={activeField === "source" ? 'Search start (e.g. "Dhanmondi Road 6")' : 'Search destination (e.g. "Gulshan 2")'}
             value={query}
             onChangeText={setQuery}
             placeholderTextColor="#9CA3AF"
@@ -288,7 +261,7 @@ export default function RoutesScreen() {
             onSubmitEditing={searchPlaces}
           />
           <TouchableOpacity onPress={searchPlaces} style={styles.searchBtn} disabled={searching}>
-            <Text style={styles.searchBtnText}>{searching ? "…" : "Search"}</Text>
+            <Text style={styles.searchBtnText}>{searching ? String("...") : String("Search")}</Text>
           </TouchableOpacity>
           {activeField === "source" && (
             <TouchableOpacity onPress={useMyLocation} style={styles.locBtn}>
@@ -297,41 +270,41 @@ export default function RoutesScreen() {
           )}
         </View>
 
-        {/* Results */}
+        {/* Results list */}
         {results.length > 0 && (
           <View style={styles.resultsBox}>
             <ScrollView style={{ maxHeight: 200 }} keyboardShouldPersistTaps="handled">
               {results.map((item, i) => (
                 <TouchableOpacity key={i} style={styles.resultItem} onPress={() => chooseResult(item)}>
                   <MapPin size={16} color="#2563EB" />
-                  <Text style={styles.resultText}>{item.name}</Text>
+                  <Text style={styles.resultText}>{String(item.name)}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
           </View>
         )}
 
-        {/* Selected human-readable addresses */}
+        {/* Selected addresses */}
         <View style={styles.selBox}>
           <View style={styles.selRow}>
             <Text style={styles.selLabel}>Start</Text>
-            <Text style={styles.selValue}>{sourceLabel || "— not set —"}</Text>
+            <Text style={styles.selValue}>{String(sourceLabel || "— not set —")}</Text>
           </View>
           <View style={styles.selRow}>
             <Text style={styles.selLabel}>Destination</Text>
-            <Text style={styles.selValue}>{destLabel || "— not set —"}</Text>
+            <Text style={styles.selValue}>{String(destLabel || "— not set —")}</Text>
           </View>
         </View>
 
         <TouchableOpacity onPress={calculateSafeRoute} disabled={isLoading} style={[styles.button, { opacity: isLoading ? 0.7 : 1 }]}>
-          {isLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Calculate</Text>}
+          <Text style={styles.buttonText}>{String(isLoading ? "Calculating…" : "Calculate")}</Text>
         </TouchableOpacity>
 
         {/* Stats */}
         <View style={styles.statsRow}>
-          <Stat label="Distance" value={routeInfo.distance} />
-          <Stat label="Duration" value={routeInfo.duration} />
-          <Stat label="Safety" value={routeInfo.safetyScore} />
+          <Stat label="Distance" value={String(routeInfo.distance)} />
+          <Stat label="Duration" value={String(routeInfo.duration)} />
+          <Stat label="Safety" value={String(routeInfo.safetyScore)} />
         </View>
 
         {/* Map */}
@@ -375,7 +348,7 @@ export default function RoutesScreen() {
         {routeInfo.warnings.length > 0 && (
           <View style={styles.warningBox}>
             {routeInfo.warnings.map((w, i) => (
-              <Text key={i} style={styles.warningText}>• {w}</Text>
+              <Text key={i} style={styles.warningText}>• {String(w)}</Text>
             ))}
           </View>
         )}
@@ -386,8 +359,8 @@ export default function RoutesScreen() {
 
 const Stat = ({ label, value }: { label: string; value: string }) => (
   <View style={styles.statItem}>
-    <Text style={styles.statLabel}>{label}</Text>
-    <Text style={styles.statValue}>{value}</Text>
+    <Text style={styles.statLabel}>{String(label)}</Text>
+    <Text style={styles.statValue}>{String(value)}</Text>
   </View>
 );
 
