@@ -25,6 +25,7 @@ import {
 } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import { supabase } from '../../lib/supabase';
+import { useAuth } from '../providers/AuthProvider'; // 👈 adjust path if your provider is elsewhere
 
 type LatLng = { latitude: number; longitude: number };
 
@@ -39,6 +40,8 @@ const BASE_TYPES = [
 ] as const;
 
 export default function ReportCrimeScreen() {
+  const { user } = useAuth(); // 👈 current signed-in user (or null)
+
   // form state
   const [crimeType, setCrimeType] = useState<string>('');
   const [description, setDescription] = useState<string>('');
@@ -101,11 +104,10 @@ export default function ReportCrimeScreen() {
   }, []);
 
   const formatAddress = (addr: Partial<Location.LocationGeocodedAddress>) => {
-    // Try to produce: "Road 6, Dhanmondi, Dhaka"
     const parts = [
-      addr.street || addr.name,         // street or POI name
-      addr.district || addr.subregion,  // area (e.g., Dhanmondi)
-      addr.city || addr.region,         // city/region
+      addr.street || addr.name,
+      addr.district || addr.subregion,
+      addr.city || addr.region,
     ].filter(Boolean);
     return parts.join(', ');
   };
@@ -176,15 +178,8 @@ export default function ReportCrimeScreen() {
       const results = await Location.geocodeAsync(searchQuery.trim());
       const mapped = results.slice(0, 8).map((r) => ({
         name:
-          [
-            r.name,
-            r.street,
-            r.district,
-            r.city,
-            r.region,
-          ]
-            .filter(Boolean)
-            .join(', ') || searchQuery.trim(),
+          [r.name, r.street, r.district, r.city, r.region].filter(Boolean).join(', ') ||
+          searchQuery.trim(),
         latitude: r.latitude!,
         longitude: r.longitude!,
       }));
@@ -276,6 +271,11 @@ export default function ReportCrimeScreen() {
   }, [crimeType, selectedOther]);
 
   const submitReport = async () => {
+    // 👇 require login so we can tie the row to this user
+    if (!user) {
+      Alert.alert('Sign in required', 'Please sign in to submit a report.');
+      return;
+    }
     if (!crimeType) {
       Alert.alert('Missing information', 'Please select a crime type.');
       return;
@@ -298,6 +298,7 @@ export default function ReportCrimeScreen() {
     try {
       setIsSubmitting(true);
       const payload: any = {
+        user_id: user.id, // 👈 store who reported
         crime_type: effectiveCrimeType.trim().toLowerCase(),
         description: description ? description.slice(0, 500) : null,
         lat: coords.lat,

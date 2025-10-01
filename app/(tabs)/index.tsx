@@ -21,6 +21,8 @@ type ReportRow = {
   area_name: string | null;
   created_at: string;
   severity: number | null;
+  upvote_no?: number | null;
+  downvote_no?: number | null;
 };
 
 function timeAgo(iso: string) {
@@ -70,10 +72,10 @@ export default function HomeScreen() {
       );
       setAreasMapped(unique.size);
 
-      // Recent activity (latest 3)
+      // Recent activity (latest 3) — read from public view
       const { data: recentData, error: recentErr } = await supabase
-        .from('reports')
-        .select('id, crime_type, area_name, created_at, severity')
+        .from('reports_public') // 👈 view with open SELECT
+        .select('id, crime_type, area_name, created_at, severity, upvote_no, downvote_no')
         .order('created_at', { ascending: false })
         .limit(3);
       if (recentErr) throw recentErr;
@@ -88,6 +90,19 @@ export default function HomeScreen() {
 
   useEffect(() => {
     fetchData();
+
+    // Realtime: when a new report is inserted, refresh the recent list
+    const ch = supabase
+      .channel('home-recent-realtime')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reports' }, () => {
+        // Just refetch the 3 most recent from the view
+        fetchData();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(ch);
+    };
   }, [fetchData]);
 
   const onRefresh = async () => {
@@ -177,11 +192,64 @@ export default function HomeScreen() {
                   <View style={[styles.severityDot, { backgroundColor: sevColor }]} />
                   <View style={styles.activityContent}>
                     <Text style={styles.activityType}>
-                      {String(item.crime_type ? item.crime_type.charAt(0).toUpperCase() + item.crime_type.slice(1) : 'Unknown')}
+                      {String(
+                        item.crime_type
+                          ? item.crime_type.charAt(0).toUpperCase() + item.crime_type.slice(1)
+                          : 'Unknown'
+                      )}
                     </Text>
                     <Text style={styles.activityArea}>{String(item.area_name || '—')}</Text>
                   </View>
                   <Text style={styles.activityTime}>{String(timeAgo(item.created_at))}</Text>
+
+                  {/* vote chips (read-only here) */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 12 }}>
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        backgroundColor: '#ECFDF5',
+                        borderRadius: 8,
+                        paddingHorizontal: 8,
+                        paddingVertical: 4,
+                      }}
+                    >
+                      <Text style={{ fontSize: 10, color: '#065F46', fontWeight: '700' }}>▲</Text>
+                      <Text
+                        style={{
+                          fontSize: 12,
+                          color: '#065F46',
+                          fontWeight: '700',
+                          marginLeft: 4,
+                        }}
+                      >
+                        {Number(item.upvote_no ?? 0)}
+                      </Text>
+                    </View>
+
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        backgroundColor: '#FEF2F2',
+                        borderRadius: 8,
+                        paddingHorizontal: 8,
+                        paddingVertical: 4,
+                      }}
+                    >
+                      <Text style={{ fontSize: 10, color: '#7F1D1D', fontWeight: '700' }}>▼</Text>
+                      <Text
+                        style={{
+                          fontSize: 12,
+                          color: '#7F1D1D',
+                          fontWeight: '700',
+                          marginLeft: 4,
+                        }}
+                      >
+                        {Number(item.downvote_no ?? 0)}
+                      </Text>
+                    </View>
+                  </View>
                 </View>
               );
             })
@@ -189,7 +257,7 @@ export default function HomeScreen() {
         </View>
 
         {/* Safety Tips */}
-        <View style={styles.section}>
+        <View className="section">
           <Text style={styles.sectionTitle}>Safety Tips</Text>
           <View style={styles.tipCard}>
             <Text style={styles.tipText}>

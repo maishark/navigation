@@ -2,21 +2,18 @@
 import { LinearGradient } from "expo-linear-gradient";
 import * as Location from "expo-location";
 import { StatusBar } from "expo-status-bar";
-import { CircleAlert as AlertCircle, Eye, MapPin } from "lucide-react-native";
+import { CircleAlert as AlertCircle, MapPin, ThumbsDown, ThumbsUp } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Dimensions,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 import MapView, { Marker, Region } from "react-native-maps";
 import { supabase } from "../../lib/supabase";
-
-const { width } = Dimensions.get("window");
 
 type ReportRow = {
   id: number;
@@ -25,6 +22,9 @@ type ReportRow = {
   lon: number;
   severity: number | null;
   created_at: string;
+  area_name?: string | null;
+  upvote_no?: number | null;
+  downvote_no?: number | null;
 };
 
 const CRIME_TYPES = [
@@ -67,9 +67,20 @@ export default function CrimeMapScreen() {
   const [userLocation, setUserLocation] = useState<{ lat: number; lon: number } | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  // ask location
+  // Voting state
+  const [userId, setUserId] = useState<string | null>(null);
+  const [myVotes, setMyVotes] = useState<Record<number, 1 | -1 | 0>>({});
+  const [optimisticVotes, setOptimisticVotes] = useState<Record<number, 1 | -1 | 0>>({});
+  const [voteBusy, setVoteBusy] = useState<Record<number, boolean>>({});
+
+  // ask location + get user id
   useEffect(() => {
     (async () => {
+      try {
+        const { data: u } = await supabase.auth.getUser();
+        setUserId(u.user?.id ?? null);
+      } catch {}
+
       try {
         const services = await Location.hasServicesEnabledAsync();
         if (!services) return;
@@ -86,13 +97,13 @@ export default function CrimeMapScreen() {
     })();
   }, []);
 
-  // fetch reports
+  // fetch reports (directly from reports so we have up/down counts)
   const fetchReports = useCallback(async () => {
     setLoading(true);
     setErr(null);
     const { data, error } = await supabase
-      .from("v_recent_reports")
-      .select("*")
+      .from("reports")
+      .select("id, crime_type, lat, lon, severity, created_at, area_name, upvote_no, downvote_no")
       .order("created_at", { ascending: false })
       .limit(1000);
 
@@ -105,12 +116,15 @@ export default function CrimeMapScreen() {
     const rows: ReportRow[] = (data ?? [])
       .filter((r: any) => typeof r.lat === "number" && typeof r.lon === "number")
       .map((r: any) => ({
-        id: r.id,
+        id: Number(r.id),
         crime_type: String(r.crime_type ?? "other").toLowerCase(),
         lat: Number(r.lat),
         lon: Number(r.lon),
         severity: typeof r.severity === "number" ? r.severity : null,
-        created_at: r.created_at,
+        created_at: String(r.created_at),
+        area_name: r.area_name ?? null,
+        upvote_no: r.upvote_no ?? 0,
+        downvote_no: r.downvote_no ?? 0,
       }));
 
     setReports(rows);
@@ -119,7 +133,7 @@ export default function CrimeMapScreen() {
 
   useEffect(() => {
     fetchReports();
-    // realtime inserts
+    // realtime new inserts
     const ch = supabase
       .channel("reports-realtime")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "reports" }, (payload) => {
@@ -127,12 +141,15 @@ export default function CrimeMapScreen() {
         if (typeof n.lat === "number" && typeof n.lon === "number") {
           setReports((prev) => [
             {
-              id: n.id,
+              id: Number(n.id),
               crime_type: String(n.crime_type ?? "other").toLowerCase(),
-              lat: n.lat,
-              lon: n.lon,
+              lat: Number(n.lat),
+              lon: Number(n.lon),
               severity: typeof n.severity === "number" ? n.severity : null,
-              created_at: n.created_at,
+              created_at: String(n.created_at),
+              area_name: n.area_name ?? null,
+              upvote_no: n.upvote_no ?? 0,
+              downvote_no: n.downvote_no ?? 0,
             },
             ...prev,
           ]);
@@ -183,6 +200,99 @@ export default function CrimeMapScreen() {
     const ct = CRIME_TYPES.find((c) => c.id === type);
     return ct?.icon ?? "📍";
   };
+
+  // ---- Voting helpers ----
+  const setReportCounts = (reportId: number, deltaUp: number, deltaDown: number) => {
+    setReports((prev) =>
+      prev.map((r) =>
+        r.id === reportId
+          ? {
+              ...r,
+              upvote_no: Math.max(0, (r.upvote_no ?? 0) + deltaUp),
+              downvote_no: Math.max(0, (r.downvote_no ?? 0) + deltaDown),
+            }
+          : r
+      )
+    );
+  };
+
+  const handleVote = async (reportId: number, next: 1 | -1) => {
+    if (!userId || voteBusy[reportId]) return;
+
+    const current = optimisticVotes[reportId] ?? myVotes[reportId] ?? 0;
+    setVoteBusy((b) => ({ ...b, [reportId]: true }));
+
+    const newVote: 1 | -1 | 0 = current === next ? 0 : next;
+
+    // optimistic overlay + counter tweaks
+    setOptimisticVotes((ov) => ({ ...ov, [reportId]: newVote }));
+    if (current === 0 && newVote === 1) setReportCounts(reportId, +1, 0);
+    if (current === 0 && newVote === -1) setReportCounts(reportId, 0, +1);
+    if (current === 1 && newVote === 0) setReportCounts(reportId, -1, 0);
+    if (current === -1 && newVote === 0) setReportCounts(reportId, 0, -1);
+    if (current === 1 && newVote === -1) setReportCounts(reportId, -1, +1);
+    if (current === -1 && newVote === 1) setReportCounts(reportId, +1, -1);
+
+    try {
+      if (newVote === 0) {
+        // unvote
+        const { error } = await supabase
+          .from("report_votes")
+          .delete()
+          .match({ report_id: reportId, user_id: userId });
+        if (error) throw error;
+        setMyVotes((mv) => ({ ...mv, [reportId]: 0 }));
+      } else {
+        // cast/switch
+        const { error } = await supabase
+          .from("report_votes")
+          .upsert(
+            { report_id: reportId, user_id: userId, value: newVote },
+            { onConflict: "report_id,user_id" }
+          );
+        if (error) throw error;
+        setMyVotes((mv) => ({ ...mv, [reportId]: newVote }));
+      }
+    } catch (e) {
+      // rollback counts
+      if (current === 0 && newVote === 1) setReportCounts(reportId, -1, 0);
+      if (current === 0 && newVote === -1) setReportCounts(reportId, 0, -1);
+      if (current === 1 && newVote === 0) setReportCounts(reportId, +1, 0);
+      if (current === -1 && newVote === 0) setReportCounts(reportId, 0, +1);
+      if (current === 1 && newVote === -1) setReportCounts(reportId, +1, -1);
+      if (current === -1 && newVote === 1) setReportCounts(reportId, -1, +1);
+    } finally {
+      setOptimisticVotes((ov) => {
+        const copy = { ...ov };
+        delete copy[reportId];
+        return copy;
+      });
+      setVoteBusy((b) => ({ ...b, [reportId]: false }));
+    }
+  };
+
+  // Load my votes for visible nearby crimes (don’t clobber optimistic overlay)
+  useEffect(() => {
+    (async () => {
+      if (!userId || recentNearbyCrimes.length === 0) return;
+      const ids = recentNearbyCrimes.map((r) => r.id);
+      const { data, error } = await supabase
+        .from("report_votes")
+        .select("report_id, value")
+        .eq("user_id", userId)
+        .in("report_id", ids as any);
+      if (!error && data) {
+        setMyVotes((prev) => {
+          const next = { ...prev };
+          for (const row of data) {
+            const rid = Number(row.report_id);
+            if (optimisticVotes[rid] == null) next[rid] = row.value === 1 ? 1 : -1;
+          }
+          return next;
+        });
+      }
+    })();
+  }, [userId, recentNearbyCrimes, optimisticVotes]);
 
   if (loading) {
     return (
@@ -275,13 +385,16 @@ export default function CrimeMapScreen() {
           </View>
         </View>
 
-        {/* Nearby (compact cards) */}
+        {/* Nearby (compact cards with votes) */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Recent Crimes Near You (≤5km, ≤5 days)</Text>
           {userLocation ? (
             recentNearbyCrimes.length > 0 ? (
               recentNearbyCrimes.slice(0, 6).map((r) => {
                 const sevColor = pinColorFor(r);
+                const effectiveVote = optimisticVotes[r.id] ?? myVotes[r.id] ?? 0;
+                const busy = !!voteBusy[r.id];
+
                 return (
                   <View key={r.id} style={styles.crimeReportCard}>
                     <View style={styles.crimeHeader}>
@@ -292,7 +405,7 @@ export default function CrimeMapScreen() {
                             {r.crime_type.charAt(0).toUpperCase() + r.crime_type.slice(1)}
                           </Text>
                           <Text style={styles.crimeLocation}>
-                            {r.lat.toFixed(5)}, {r.lon.toFixed(5)}
+                            {r.area_name ? String(r.area_name) : `${r.lat.toFixed(5)}, ${r.lon.toFixed(5)}`}
                           </Text>
                         </View>
                       </View>
@@ -302,11 +415,41 @@ export default function CrimeMapScreen() {
                         </Text>
                       </View>
                     </View>
+
                     <Text style={styles.crimeTime}>{new Date(r.created_at).toLocaleString()}</Text>
-                    <TouchableOpacity style={styles.viewDetailsBtn} onPress={() => {}}>
-                      <Eye size={16} color="#2563EB" />
-                      <Text style={styles.viewDetailsText}>View Details</Text>
-                    </TouchableOpacity>
+
+                    {/* Vote row */}
+                    <View style={styles.voteRow}>
+                      <TouchableOpacity
+                        style={[
+                          styles.voteBtn,
+                          effectiveVote === 1 && styles.voteBtnActiveUp,
+                          busy && styles.voteBtnDisabled,
+                        ]}
+                        disabled={busy || !userId}
+                        onPress={() => handleVote(r.id, 1)}
+                      >
+                        <ThumbsUp size={14} color={effectiveVote === 1 ? "#fff" : "#16A34A"} />
+                        <Text style={[styles.voteText, effectiveVote === 1 && styles.voteTextActive]}>
+                          {Number(r.upvote_no ?? 0)}
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[
+                          styles.voteBtn,
+                          effectiveVote === -1 && styles.voteBtnActiveDown,
+                          busy && styles.voteBtnDisabled,
+                        ]}
+                        disabled={busy || !userId}
+                        onPress={() => handleVote(r.id, -1)}
+                      >
+                        <ThumbsDown size={14} color={effectiveVote === -1 ? "#fff" : "#DC2626"} />
+                        <Text style={[styles.voteText, effectiveVote === -1 && styles.voteTextActive]}>
+                          {Number(r.downvote_no ?? 0)}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 );
               })
@@ -416,9 +559,26 @@ const styles = StyleSheet.create({
   crimeLocation: { fontSize: 12, color: "#6B7280", marginTop: 2 },
   severityBadge: { borderRadius: 12, paddingHorizontal: 8, paddingVertical: 4 },
   severityText: { fontSize: 10, color: "#FFFFFF", fontWeight: "600" },
-  crimeTime: { fontSize: 12, color: "#9CA3AF", marginBottom: 8 },
-  viewDetailsBtn: { flexDirection: "row", alignItems: "center" },
-  viewDetailsText: { fontSize: 12, color: "#2563EB", fontWeight: "500", marginLeft: 4 },
+  crimeTime: { fontSize: 12, color: "#9CA3AF", marginBottom: 10 },
+
+  // voting
+  voteRow: { flexDirection: "row", gap: 10 },
+  voteBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  voteBtnActiveUp: { backgroundColor: "#16A34A", borderColor: "#16A34A" },
+  voteBtnActiveDown: { backgroundColor: "#DC2626", borderColor: "#DC2626" },
+  voteBtnDisabled: { opacity: 0.6 },
+  voteText: { color: "#374151", fontWeight: "700", fontSize: 12 },
+  voteTextActive: { color: "#FFFFFF" },
 
   // alert
   alertCard: {
