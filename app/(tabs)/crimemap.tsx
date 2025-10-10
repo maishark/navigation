@@ -29,7 +29,7 @@ type ReportRow = {
 
 const CRIME_TYPES = [
   { id: "all", name: "All Crimes", color: "#6B7280", icon: "📍" },
-  { id: "murder", name: "Murder", color: "#7F1D1D", icon: "⚰️" },
+  { id: "murder", name: "Murder", color: "#7F1D1D", icon: "🔪" },
   { id: "robbery", name: "Robbery", color: "#DC2626", icon: "💰" },
   { id: "mugging", name: "Mugging", color: "#F59E0B", icon: "👤" },
   { id: "assault", name: "Assault", color: "#EA580C", icon: "👊" },
@@ -454,7 +454,7 @@ export default function CrimeMapScreen() {
                 );
               })
             ) : (
-              <Text style={{ color: "#6B7280" }}>✅ No recent crimes reported near you.</Text>
+              <Text style={{ color: "#6B7280" }}>No recent crimes reported near you.</Text>
             )
           ) : (
             <Text style={{ color: "#9CA3AF" }}>
@@ -470,7 +470,7 @@ export default function CrimeMapScreen() {
             <View style={styles.alertContent}>
               <Text style={styles.alertTitle}>Heads up</Text>
               <Text style={styles.alertText}>
-                Reports are limited to the last 180 days and auto-refresh when users submit new incidents.
+                Reports auto-refresh when users submit new incidents.
               </Text>
             </View>
           </View>

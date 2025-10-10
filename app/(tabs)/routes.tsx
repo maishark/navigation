@@ -337,7 +337,7 @@ export default function RoutesScreen() {
           <RouteIcon size={28} color="#FFFFFF" />
           <Text style={styles.headerTitle}>Safer Route</Text>
           <Text style={styles.headerSubtitle}>
-            Pick start & destination (Dhaka traffic aware)
+            Pick start & destination
           </Text>
         </View>
       </LinearGradient>

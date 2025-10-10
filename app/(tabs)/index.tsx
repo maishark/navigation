@@ -118,7 +118,7 @@ export default function HomeScreen() {
       <LinearGradient colors={['#DC2626', '#B91C1C']} style={styles.header}>
         <View style={styles.headerContent}>
           <Car size={28} color="#FFFFFF" style={{ marginBottom: 8 }} />
-          <Text style={styles.headerTitle}>Dhaka Safety</Text>
+          <Text style={styles.headerTitle}>Safety App</Text>
           <Text style={styles.headerSubtitle}>Travel Safe, Stay Informed</Text>
         </View>
       </LinearGradient>
